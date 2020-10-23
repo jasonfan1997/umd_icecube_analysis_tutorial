@@ -30,17 +30,14 @@ def build_bkg_spline(data , bins=np.linspace(-1.0, 1.0, 501) , file_name = None)
     
     hist, bins = np.histogram(sin_dec, 
                         bins=bins, 
-                        weights=np.ones_like(data['dec'])/len(data['dec']),
                         density=True
                         )
                         
-    bg_p_dec = interpolate.UnivariateSpline(bins[:-1]+np.diff(bins)/2., 
-                                        hist,
-                                        bbox=[-1.0, 1.0],
-                                        s=1.5e-5,
-                                        ext=1)
+    bg_p_dec = interpolate.InterpolatedUnivariateSpline(bins[:-1]+np.diff(bins)/2., 
+                                        np.log(hist),
+                                        k=2)
     if file_name is not None:
-        with open(file_name, 'wb') as f:
+        with open(file_name+"1d.pickle", 'wb') as f:
             pickle.dump(bg_p_dec, f)
         
     return bg_p_dec
@@ -105,7 +102,7 @@ def build_bkg_2dhistogram(data , bins=[np.linspace(-1,1,100),np.linspace(1,8,100
     bg_h,xedges,yedges=np.histogram2d(np.sin(data['dec']),data['logE'],bins=bins
                                       ,weights=bg_w)
     if file_name is not None:
-        np.save(file_name,bg_h)                                
+        np.save(file_name+"bkg2d.npy",bg_h)                                
     return bg_h,bins
 
 #The code
@@ -179,7 +176,7 @@ def build_energy_2dhistogram(data, sim, bins=[np.linspace(-1,1,100),np.linspace(
         sob_maps[:,:,i], _ = create_interpolated_ratio(data, sim,g, bins )
                      
     if file_name is not None:
-        np.save(file_name,sob_maps)
+        np.save(file_name+"2d.npy",sob_maps)
         np.save("gamma_point_"+file_name,gamma_points)
     return sob_maps, gamma_points
 
@@ -190,7 +187,7 @@ def build_energy_2dhistogram(data, sim, bins=[np.linspace(-1,1,100),np.linspace(
     
 class LLH_point_source(object):
     '''The class for point source'''
-    def __init__(self , ra , dec , data , sim ,  spectrum , signal_time_profile = None , background_time_profile = (0,1) , background = None, fit_position=False , bkg_bins=np.linspace(-1.0, 1.0, 501) , sampling_width = np.radians(1) , bkg_2dbins=[np.linspace(-1,1,100),np.linspace(1,8,100)] , sob_maps = None , gamma_points = np.arange(-4, -1, 0.25) ,bkg_dec_spline = None ,bkg_maps = None):
+    def __init__(self , ra , dec , data , sim ,  spectrum , signal_time_profile = None , background_time_profile = (0,1) , background = None, fit_position=False , bkg_bins=np.linspace(-1.0, 1.0, 501) , sampling_width = np.radians(1) , bkg_2dbins=[np.linspace(-1,1,100),np.linspace(1,8,100)] , sob_maps = None , gamma_points = np.arange(-4, -1, 0.25) ,bkg_dec_spline = None ,bkg_maps = None,file_name=None):
         ''' Constructor of the class
         args:
         ra: RA of the source in rad
@@ -242,7 +239,7 @@ class LLH_point_source(object):
         self.sampling_width = sampling_width
         
         if bkg_dec_spline is None:
-            self.bkg_spline = build_bkg_spline(self.background , bins = bkg_bins)
+            self.bkg_spline = build_bkg_spline(self.background , bins = bkg_bins,file_name=file_name)
             
         elif type(bkg_dec_spline) == str:
             with open(bkg_dec_spline, 'rb') as f:
@@ -252,8 +249,9 @@ class LLH_point_source(object):
         
         if spectrum == "PowerLaw":
             self.gamma_point = gamma_points
+            self.gamma_point_prc = np.abs(gamma_points[1] - gamma_points[0])
             if sob_maps is None:
-                self.ratio,self.gamma_point = build_energy_2dhistogram(self.background, sim ,bkg_2dbins ,gamma_points)
+                self.ratio,self.gamma_point = build_energy_2dhistogram(self.background, sim ,bkg_2dbins ,gamma_points,file_name=file_name)
                 
             elif type(sob_maps) == str:
                 self.ratio = np.load(sob_maps)
@@ -265,7 +263,7 @@ class LLH_point_source(object):
             self.spectrum = spectrum
             
             if bkg_maps is None:
-                self.bg_h,self.energybins = build_bkg_2dhistogram(self.background , bins = bkg_2dbins)
+                self.bg_h,self.energybins = build_bkg_2dhistogram(self.background , bins = bkg_2dbins,file_name=file_name)
 
             elif type(bkg_maps) == str:
                 self.bg_h = np.load(bkg_maps)
@@ -365,7 +363,7 @@ class LLH_point_source(object):
         return:
         background spatial pdf
         '''
-        background_likelihood = (1/(2*np.pi))*self.bkg_spline(np.sin(self.data['dec']))
+        background_likelihood = (1/(2*np.pi))*np.exp(self.bkg_spline(np.sin(self.data['dec'])))
         return background_likelihood
     
     def update_background_time_profile(self,profile):
