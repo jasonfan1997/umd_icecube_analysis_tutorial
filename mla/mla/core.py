@@ -19,11 +19,11 @@ except ImportError:
 def build_bkg_spline(data , bins=np.linspace(-1.0, 1.0, 501) , file_name = None): 
     ''' build the dec-background spline.
     args:
-    bins: the sindec bins that would be used to build the histogram.
+    bins: the sinDec bins that would be used to build the histogram.
     file_name(optional): The file name of the spline saved. Default is not saving the spline.
     
     return:
-    sindec-background spline.
+    sinDec-background spline.
     
     '''
     sin_dec = np.sin(data['dec'])
@@ -53,9 +53,9 @@ def scale_and_weight_trueDec(sim , source_dec , sampling_width = np.radians(1)):
     returns:
     reduced_sim=Scaled simulation set with only events within sampling width
     '''
-    sindec_dist = np.abs(source_dec-sim['trueDec'])
+    sinDec_dist = np.abs(source_dec-sim['trueDec'])
     
-    close = sindec_dist < sampling_width
+    close = sinDec_dist < sampling_width
     
     reduced_sim = sim[close].copy()
     
@@ -77,19 +77,19 @@ def scale_and_weight_dec(sim , source_dec , sampling_width = np.radians(1)):
     returns:
     reduced_sim=Simulation set with only events within sampling width(ow unchanged)
     '''
-    sindec_dist = np.abs(source_dec-sim['dec'])
+    sinDec_dist = np.abs(source_dec-sim['dec'])
     
-    close = sindec_dist < sampling_width
+    close = sinDec_dist < sampling_width
     
     reduced_sim = sim[close].copy()
     
     return reduced_sim
     
 def build_bkg_2dhistogram(data , bins=[np.linspace(-1,1,100),np.linspace(1,8,100)] , file_name = None):
-    ''' build the background 2d(sindec and logE) histogram. This function a prepation for energy S/B building for custom spectrum. 
+    ''' build the background 2d(sinDec and logE) histogram. This function a prepation for energy S/B building for custom spectrum. 
     args:
     data: Background data set
-    bins: Bins defination,first one is sindec binning and the second one is logE binning.
+    bins: Bins defination,first one is sinDec binning and the second one is logE binning.
     file_name(optional): Saving the background 2d histogram to file.Default is not saving.
     
     returns:
@@ -109,15 +109,15 @@ def build_bkg_2dhistogram(data , bins=[np.linspace(-1,1,100),np.linspace(1,8,100
 
 
 def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.linspace(1,8,100)]):
-    r'''create the S/B ratio 2d histogram for a given gamma.
+    r'''create the S/B ratio 2d spline for a given gamma.
     args:
     data: Background data
     sim: Monte Carlo Simulation dataset
     gamma: spectral index
-    bins: Bins defination,first one is sindec binning and the second one is logE binning.
+    bins: Bins defination,first one is sinDec binning and the second one is logE binning.
     
     returns:
-    ratio,bins:The S/B energy histogram and the binning. 
+    spline,bins:The S/B energy spline and the binning. 
     '''
     # background
     bins = np.array(bins)
@@ -142,6 +142,7 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
         # We explicitly want to avoid NaNs and infinities
         values = ratio[i]
         good = np.isfinite(values) & (values>0)
+        notgood = np.logical_not(good)
         x, y = bins[1][:-1][good], values[good]
 
         # Do a linear interpolation across the energy range
@@ -151,35 +152,39 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
                                                     ext = 3)
 
         # And store the interpolated values
-        ratio[i] = spline(bins[1,:-1])
-        
-    return ratio, bins
+        ratio[i][notgood] = spline(bins[1,:-1][notgood])
+    
+    binsmid0 = (bins[0][1:] + bins[0][:-1]) / 2    
+    binsmid1 = (bins[1][1:] + bins[1][:-1]) / 2    
+    spline = scipy.interpolate.RegularGridInterpolator(
+            (binsmid0,binsmid1), np.log(ratio),
+            method="linear",
+            bounds_error=False,
+            fill_value=0.)
+    return spline, bins
 
     
 def build_energy_2dhistogram(data, sim, bins=[np.linspace(-1,1,100),np.linspace(1,8,100)], gamma_points = np.arange(-4, -1, 0.25), file_name = None):
-    ''' build the Energy SOB 2d histogram for power-law spectrum for a set of gamma.
+    ''' build the Energy SOB 2d spline for power-law spectrum for a set of gamma.
     args:
     data: Background data
     sim: Monte Carlo Simulation dataset
-    bins: Bins defination,first one is sindec binning and the second one is logE binning.
+    bins: Bins defination,first one is sinDec binning and the second one is logE binning.
     gamma_points: array of spectral index
-    
+    file_name: prefix of spline and gamma points file, default is not saving
     returns:
-    sob_maps,gamma_points:3d array with the first 2 axes be S/B energy histogram and the third axis be gamma_points,and the binning.        
+    sob_spline,gamma_points:list of spline object and the axis be gamma_points,and the binning.        
     
     '''
-    sob_maps = np.zeros((len(bins[0])-1,
-                     len(bins[1])-1,
-                     len(gamma_points)),
-                     dtype = float)
+    sob_spline = []
     for i, g in enumerate(gamma_points):
-        sob_maps[:,:,i], _ = create_interpolated_ratio(data, sim,g, bins )
+        sob_spline.append(create_interpolated_ratio(data, sim,g, bins )[0])
                      
     if file_name is not None:
-        np.save(file_name+"2d.npy",sob_maps)
+        with open(file_name+'_2dbkg.pkl', 'wb') as f:
+            pickle.dump(sob_spline, f)
         np.save("gamma_point_"+file_name,gamma_points)
-    return sob_maps, gamma_points
-
+    return sob_spline, gamma_points
 
     
 
@@ -187,7 +192,7 @@ def build_energy_2dhistogram(data, sim, bins=[np.linspace(-1,1,100),np.linspace(
     
 class LLH_point_source(object):
     '''The class for point source'''
-    def __init__(self , ra , dec , data , sim ,  spectrum , signal_time_profile = None , background_time_profile = (0,1) , background = None, fit_position=False , bkg_bins=np.linspace(-1.0, 1.0, 501) , sampling_width = np.radians(1) , bkg_2dbins=[np.linspace(-1,1,100),np.linspace(1,8,100)] , sob_maps = None , gamma_points = np.arange(-4, -1, 0.25) ,bkg_dec_spline = None ,bkg_maps = None,file_name=None):
+    def __init__(self , ra , dec , data , sim ,  spectrum , signal_time_profile = None , background_time_profile = (0,1) , background = None, fit_position=False , bkg_bins=np.linspace(-1.0, 1.0, 501) , sampling_width = np.radians(1) , bkg_2dbins=[np.linspace(-1,1,100),np.linspace(1,8,100)] , sob_spline = None , gamma_points = np.arange(-4, -1, 0.25) ,bkg_dec_spline = None ,bkg_maps = None,file_name=None):
         ''' Constructor of the class
         args:
         ra: RA of the source in rad
@@ -199,12 +204,12 @@ class LLH_point_source(object):
         background_time_profile: generic_profile object or the list of the start time and end time. This is the background time profile.Default is a (0,1) tuple which will create a uniform_profile from 0 to 1.
         background: background data that will be used to build the background dec pdf and energy S/B histogram if not supplied.Default is None(Which mean the data will be used as background.
         fit_position:Whether position is a fitting parameter. If True that it will keep all data.Default is False/
-        bkg_bins: The sindec bins for background pdf(as a function of sinDec).
+        bkg_bins: The sinDec bins for background pdf(as a function of sinDec).
         sampling_width: The sampling width(in rad) for Monte Carlo simulation.Only simulation events within the sampling width will be used.Default is 1 degree.
-        bkg_2dbins: The sindec and logE binning for energy S/B histogram.
-        sob_maps: If the spectrum is a PowerLaw,User can supply a 3D array with sindec and logE histogram generated for different gamma.Default is None.
+        bkg_2dbins: The sinDec and logE binning for energy S/B histogram.
+        sob_spline: If the spectrum is a PowerLaw,User can supply a 3D array with sinDec and logE histogram generated for different gamma.Default is None.
         gamma_points: The set of gamma for PowerLaw energy weighting.
-        bkg_dec_spline: The background pdf as function of sindec if the spline already been built beforehand.
+        bkg_dec_spline: The background pdf as function of sinDec if the spline already been built beforehand.
         bkg_maps: The background histogram if it is already been built(Notice it would only be needed if the spectrum is a user-defined spectrum.
         '''
         if background is None:
@@ -213,16 +218,16 @@ class LLH_point_source(object):
             self.background = background
         
         try:
-            self.data = rf.append_fields(data,'sindec',np.sin(data['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
-        except ValueError: #sindec already exist
+            self.data = rf.append_fields(data,'sinDec',np.sin(data['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
+        except ValueError: #sinDec already exist
             pass
                     
         self.energybins = bkg_2dbins
         self.N = len(data) #The len of the data
         self.fit_position = fit_position
         try:
-            self.fullsim = rf.append_fields(sim,'sindec',np.sin(sim['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
-        except ValueError: #sindec already exist
+            self.fullsim = rf.append_fields(sim,'sinDec',np.sin(sim['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
+        except ValueError: #sinDec already exist
             pass
             
         
@@ -250,14 +255,15 @@ class LLH_point_source(object):
         if spectrum == "PowerLaw":
             self.gamma_point = gamma_points
             self.gamma_point_prc = np.abs(gamma_points[1] - gamma_points[0])
-            if sob_maps is None:
+            if sob_spline is None:
                 self.ratio,self.gamma_point = build_energy_2dhistogram(self.background, sim ,bkg_2dbins ,gamma_points,file_name=file_name)
                 
-            elif type(sob_maps) == str:
-                self.ratio = np.load(sob_maps)
+            elif type(sob_spline) == str:
+                with open(sob_spline, 'rb') as f:
+                    self.ratio = pickle.load(f)
                 
             else:
-                self.ratio = sob_maps
+                self.ratio = sob_spline
             self.update_position(ra,dec)
         else:
             self.spectrum = spectrum
@@ -335,8 +341,8 @@ class LLH_point_source(object):
         data: new data
         '''
         try:
-            self.data = rf.append_fields(data,'sindec',np.sin(data['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
-        except ValueError: #sindec already exist
+            self.data = rf.append_fields(data,'sinDec',np.sin(data['dec']),usemask=False)
+        except ValueError: #sinDec already exist
             pass
         self.data = data
         self.N = len(data)   
@@ -393,7 +399,7 @@ class LLH_point_source(object):
         '''enegy weight calculation. This is slow if you choose a large sample width'''
         sig_w=self.sim_dec['ow'] * self.spectrum(self.sim_dec['trueE'])
         sig_w/=np.sum(self.fullsim['ow'] * self.spectrum(self.fullsim['trueE']))
-        sig_h,xedges,yedges=np.histogram2d(self.sim_dec['sindec'],self.sim_dec['logE'],bins=self.energybins,weights=sig_w)
+        sig_h,xedges,yedges=np.histogram2d(self.sim_dec['sinDec'],self.sim_dec['logE'],bins=self.energybins,weights=sig_w)
         with np.errstate(divide='ignore'):
             ratio=sig_h/self.bg_h
         for k in range(ratio.shape[0]):
@@ -420,20 +426,20 @@ class LLH_point_source(object):
             return
             
         #First part, ran if the spectrum is user-defined
-        if self.ratio.ndim == 2 :#ThreeML style 
-            i = np.searchsorted(self.energybins[0],np.sin(self.data['dec']))-1
+        if type(self.ratio) != list :#ThreeML style 
+            i = np.searchsorted(self.energybins[0],self.data['sinDec'])-1
             j = np.searchsorted(self.energybins[1],self.data['logE'])-1
             i[i<self.edge_point[0]] = self.edge_point[0] #If events fall outside the sampling width, just gonna approxiamte the weight using the nearest non-zero sinDec bin.
             i[i>self.edge_point[1]] = self.edge_point[1]
             self.energy = self.ratio[i,j]
          
         #Second part, ran if the Spectrum is a PowerLaw object.
-        elif self.ratio.ndim == 3: #Tradiational style with PowerLaw spectrum and spline
+        else: #Tradiational style with PowerLaw spectrum and spline
             sob_ratios = self.evaluate_interpolated_ratio()
             sob_spline = np.zeros(len(self.data), dtype=object)
             for i in range(len(self.data)):
                 spline = scipy.interpolate.UnivariateSpline(self.gamma_point,
-                                            np.log(sob_ratios[i]),
+                                            np.log(sob_ratios[:,i]),
                                             k = 3,
                                             s = 0,
                                             ext = 'raise')
@@ -449,7 +455,7 @@ class LLH_point_source(object):
                     bounds= [[gamma, gamma],[0,self.N]]
                     self.gamma_best_fit = gamma
                 else:
-                    bounds= [[self.gamma_point[0], self.gamma_point[-1]],[0,self.N]]
+                    bounds= [[self.gamma_point[0], self.gamma_point[-1]],[0,self.N+1]]
                 bf_params = scipy.optimize.minimize(inner_ts,
                                     x0 = [-2,1],
                                     bounds = bounds,
@@ -480,9 +486,10 @@ class LLH_point_source(object):
         return:
         2D array .The energy weight of each events at each gamma point.
         '''
-        i = np.searchsorted(self.energybins[0], np.sin(self.data['dec'])) - 1
-        j = np.searchsorted(self.energybins[1], self.data['logE']) - 1
-        return self.ratio[i,j]
+        ratio = []
+        for i in range(len(self.ratio)):
+            ratio.append(np.exp(self.ratio[i](np.array([self.data['sinDec'],self.data['logE']]).T)))
+        return np.array(ratio)
     
         
     def eval_llh(self):
@@ -546,8 +553,8 @@ class LLH_point_source(object):
         '''
         self.sample_size = len(sample)+self.sample_size
         try:
-            sample = rf.append_fields(sample,'sindec',np.sin(sample['dec']),usemask=False)
-        except ValueError: #sindec already exist
+            sample = rf.append_fields(sample,'sinDec',np.sin(sample['dec']),usemask=False)
+        except ValueError: #sinDec already exist
             pass
         sample = rf.drop_fields(sample, [n for n in sample.dtype.names \
                          if not n in self.data.dtype.names])
