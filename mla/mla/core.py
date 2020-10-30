@@ -223,6 +223,7 @@ class LLH_point_source(object):
         try:
             self.fullsim = rf.append_fields(sim,'sindec',np.sin(sim['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
         except ValueError: #sindec already exist
+            self.fullsim = self.fullsim
             pass
             
         
