@@ -339,8 +339,8 @@ class LLH_point_source(object):
         try:
             self.data = rf.append_fields(data,'sindec',np.sin(data['dec']),usemask=False)#The full simulation set,this is for the overall normalization of the Energy S/B ratio
         except ValueError: #sindec already exist
+            self.data = data
             pass
-        self.data = data
         self.N = len(data)   
         self.sample_size = 0       
         self.update_spatial()
