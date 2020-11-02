@@ -149,10 +149,11 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
         spline = scipy.interpolate.UnivariateSpline(x, y,
                                                     k = 1,
                                                     s = 0,
-                                                    ext = 3)
+                                                    ext = 1)
 
         # And store the interpolated values
-        ratio[i][notgood] = spline(bins[1,:-1][notgood])
+        #ratio[i][notgood] = spline(bins[1,:-1][notgood])
+        ratio[i][notgood] = np.percentile((ratio[np.isfinite(ratio) & (ratio>0)]),99)
     
     binsmid0 = (bins[0][1:] + bins[0][:-1]) / 2    
     binsmid1 = (bins[1][1:] + bins[1][:-1]) / 2    
@@ -344,8 +345,8 @@ class LLH_point_source(object):
         try:
             self.data = rf.append_fields(data,'sinDec',np.sin(data['dec']),usemask=False)
         except ValueError: #sinDec already exist
+            self.data = data
             pass
-        self.data = data
         self.N = len(data)   
         self.sample_size = 0       
         self.update_spatial()
@@ -441,7 +442,7 @@ class LLH_point_source(object):
             for i in range(len(self.data)):
                 spline = scipy.interpolate.UnivariateSpline(self.gamma_point,
                                             np.log(sob_ratios[:,i]),
-                                            k = 3,
+                                            k = 1,
                                             s = 0,
                                             ext = 'raise')
                 sob_spline[i] = spline
@@ -476,7 +477,7 @@ class LLH_point_source(object):
         return:
         final_sob_ratios: array of len(data) .The energy weight of each events.
         '''
-        final_sob_ratios = np.ones_like(self.data, dtype=float)
+        final_sob_ratios = np.ones(len(self.data), dtype=float)
         for i, spline in enumerate(splines):
             final_sob_ratios[i] = np.exp(spline(gamma))
 
