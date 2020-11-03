@@ -152,7 +152,7 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
                                                     ext = 3)
 
         # And store the interpolated values
-        ratio[i][notgood] = spline(bins[1,:-1][notgood])
+        ratio[i][notgood] = spline(bins[1][:-1][notgood])
     
     binsmid0 = (bins[0][1:] + bins[0][:-1]) / 2    
     binsmid1 = (bins[1][1:] + bins[1][:-1]) / 2    
@@ -344,8 +344,8 @@ class LLH_point_source(object):
         try:
             self.data = rf.append_fields(data,'sinDec',np.sin(data['dec']),usemask=False)
         except ValueError: #sinDec already exist
+            self.data = data
             pass
-        self.data = data
         self.N = len(data)   
         self.sample_size = 0       
         self.update_spatial()
