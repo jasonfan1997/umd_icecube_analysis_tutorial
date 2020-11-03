@@ -152,7 +152,7 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
                                                     ext = 1)
 
         # And store the interpolated values
-        #ratio[i][notgood] = spline(bins[1,:-1][notgood])
+        #ratio[i][notgood] = spline(bins[1][:-1][notgood])
         ratio[i][notgood] = np.percentile((ratio[np.isfinite(ratio) & (ratio>0)]),99)
     
     binsmid0 = (bins[0][1:] + bins[0][:-1]) / 2    
