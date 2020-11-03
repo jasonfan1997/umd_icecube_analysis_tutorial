@@ -151,7 +151,7 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
                                                     ext = 3)
 
         # And store the interpolated values
-        ratio[i] = spline(bins[1,:-1])
+        ratio[i] = spline(bins[1][:-1])
         
     return ratio, bins
 
