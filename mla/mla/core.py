@@ -97,10 +97,9 @@ def build_bkg_2dhistogram(data , bins=[np.linspace(-1,1,100),np.linspace(1,8,100
     '''
     bg_w=np.ones(len(data),dtype=float)
     
-    bg_w/=np.sum(bg_w)
-    
     bg_h,xedges,yedges=np.histogram2d(np.sin(data['dec']),data['logE'],bins=bins
-                                      ,weights=bg_w)
+                                           ,normed=True)
+    bg_h /= np.sum(bg_h,axis=1)[:,None]
     if file_name is not None:
         np.save(file_name+"bkg2d.npy",bg_h)                                
     return bg_h,bins
@@ -121,12 +120,11 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
     '''
     # background
     bins = np.array(bins)
-    bg_w = np.ones(len(data), dtype=float)
-    bg_w /= np.sum(bg_w)
     bg_h, xedges, yedges  = np.histogram2d(np.sin(data['dec']),
                                            data['logE'],
                                            bins=bins,
-                                           weights = bg_w)
+                                           normed=True)
+    bg_h /= np.sum(bg_h,axis=1)[:,None]                                       
     
     # signal
     sig_w = sim['ow'] * sim['trueE']**gamma
@@ -134,14 +132,17 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
     sig_h, xedges, yedges = np.histogram2d(np.sin(sim['dec']),
                                            sim['logE'],
                                            bins=bins,
+                                           normed=True,
                                            weights = sig_w)
-    
+    sig_h /= np.sum(sig_h,axis=1)[:,None]   
     ratio = sig_h / bg_h
     for i in range(ratio.shape[0]):
         # Pick out the values we want to use.
         # We explicitly want to avoid NaNs and infinities
         values = ratio[i]
         good = np.isfinite(values) & (values>0)
+        mc_values = sig_h[i]
+        notmc_domain = np.logical_not(np.isfinite(mc_values) & (mc_values>0))
         notgood = np.logical_not(good)
         x, y = bins[1][:-1][good], values[good]
 
@@ -151,9 +152,10 @@ def create_interpolated_ratio( data, sim, gamma, bins=[np.linspace(-1,1,100),np.
                                                     s = 0,
                                                     ext = 1)
 
-        # And store the interpolated values
-        #ratio[i][notgood] = spline(bins[1][:-1][notgood])
-        ratio[i][notgood] = np.percentile((ratio[np.isfinite(ratio) & (ratio>0)]),99)
+        # And store the interpolated values(For those that not in exp and mc domain) 
+        ratio[i][notgood] = spline(bins[1][:-1][notgood])
+        # For events inside mc domain, assign 99 percentile of SOB ratio
+        ratio[i][np.logical_not(notmc_domain)&notgood] = np.percentile((ratio[np.isfinite(ratio) & (ratio>1)]),99)
     
     binsmid0 = (bins[0][1:] + bins[0][:-1]) / 2    
     binsmid1 = (bins[1][1:] + bins[1][:-1]) / 2    
@@ -400,14 +402,17 @@ class LLH_point_source(object):
     def update_energy_histogram(self):
         '''enegy weight calculation. This is slow if you choose a large sample width'''
         sig_w=self.sim_dec['ow'] * self.spectrum(self.sim_dec['trueE'])
-        sig_w/=np.sum(self.fullsim['ow'] * self.spectrum(self.fullsim['trueE']))
-        sig_h,xedges,yedges=np.histogram2d(self.sim_dec['sinDec'],self.sim_dec['logE'],bins=self.energybins,weights=sig_w)
+        sig_h,xedges,yedges=np.histogram2d(self.sim_dec['sinDec'],self.sim_dec['logE'],bins=self.energybins,normed=True,weights=sig_w)
+        sig_h /= np.sum(sig_h,axis=1)[:,None]  
         with np.errstate(divide='ignore'):
             ratio=sig_h/self.bg_h
         for k in range(ratio.shape[0]):
             values=ratio[k]
             good=np.isfinite(values)&(values>0)
-            x,y=self.energybins[1][:-1][good],values[good]
+            mc_values = sig_h[i]
+            notmc_domain = np.logical_not(np.isfinite(mc_values) & (mc_values>0))
+            notgood = np.logical_not(good)
+            x, y = bins[1][:-1][good], values[good]
             if len(x) > 1:
                 spline=scipy.interpolate.UnivariateSpline(x,y,k=1,s=0,ext=3)
                 ratio[k]=spline(self.energybins[1][:-1])
